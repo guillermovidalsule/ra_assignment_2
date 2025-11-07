@@ -8,7 +8,17 @@ project Bins_And_Balls is
    for Main use ("bins_and_balls.adb");
 
    package Compiler is
-      for Default_Switches ("Ada") use Bins_And_Balls_Config.Ada_Compiler_Switches;
+      for Default_Switches ("Ada") use Bins_And_Balls_Config.Ada_Compiler_Switches
+        & ("-gnateDN=1")
+        & ("-gnateDM=1")
+        & ("-gnateDD=1")
+        & ("-gnateDSTRAT=One_Choice")
+        & ("-gnateDB=0.0")
+        & ("-gnateDBATCH=True")
+        & ("-gnateDBATCH_SIZE=1")
+        & ("-gnateDK=1")
+        & ("-gnateDPARTIAL=False")
+        & ("-gnateDT=1");
    end Compiler;
 
    package Binder is

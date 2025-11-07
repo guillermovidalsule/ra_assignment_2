@@ -14,15 +14,26 @@
 --                                                                      --
 --                             2025-2026 Q1                             --
 --                                                                      --
--- This simple project models a Galton board a.k.a. Galton box using    --
--- Ada. It has two configuration parameters: Experiments and Levels.    --
--- They hold the number of balls (or repetitions) and the number of le- --
--- vels of the box, respectively. In addition, it uses PLplot to gener- --
--- ate some informative plots regarding the outcome of the experiment.  --
+-- The second assignment of the course aims to study the model of balls --
+-- and  bins.  This problem is analogous  to other ones such as buffers --
+-- with  requests, or routers with incoming  packages. There are  four  --
+-- allocation strategies that are of interest:                          --
 --                                                                      --
--- NOTE that this crate uses Ada2022 and is quite verbose in order to   --
--- make it understandable for those that are not familiarized with the  --
--- language.                                                            --
+--   (1) One_Choice : A bin is chosen at random with P{Xi} = 1/M        --
+--   (2) Two_Choice : Out of two random bins, the one with the least    --
+--                    balls is chosen.                                  --
+--   (3) D_Choice   : Same as Two_Choice but with D bins                --
+--   (4) Beta       : With probability β strategy Two_Choice is used    --
+--                    and with probability (1 - β) One_Choice is chosen --
+--                                                                      --
+-- On top of that, batching can  be enabled to simulate  balls arriving --
+-- in batches, being  the amount also  configurable. This works for all --
+-- aforementioned strategies. Partial  information can be  enabled when --
+-- using two random bins.                                               --
+--                                                                      --
+--                         I M P O R T A N T                            --
+-- The program produces a  CSV file containing the averaged results for --
+--            the given allocation strategy and parameters.             --
 --                                                                      --
 --------------------------------------------------------------------------
 
@@ -36,21 +47,26 @@ procedure Bins_And_Balls is
    use Allocation_Schemes;
 
    --  Program paramenters
-   N_Balls  : constant            := 21;
-   M_Bins   : constant            := 7;
-   D        : constant            := 7;
-   Strategy : constant Strategies := D_Choice;
-   β        : constant            := 0.05;
+   N_Balls : constant := $N;
+   M_Bins  : constant := $M;
+   D       : constant := $D;
+   β       : constant := $B;
+   K       : constant := $K;
+   T       : constant := $T;
+
+   --  Strategy
+   Strategy : constant Strategies := $STRAT;
 
    --  Batched configuration
-   Batched    : constant Boolean := True;
-   Batch_Size : constant         := N_Balls / M_Bins;
+   Batched    : constant Boolean := $BATCH;
+   Batch_Size : constant         := $BATCH_SIZE;
 
    --  Rustic visualization
-   Print_Graph : constant Boolean := True;
+   Print_Graph : constant Boolean := False;
 
    --  Array holding ball x bins
-   Bins : Unbounded_Integer_Array (1 .. M_Bins);
+   Bins  : array (1 .. T) of Unbounded_Integer_Array (1 .. M_Bins);
+   Total : Unbounded_Integer_Array (1 .. M_Bins);
 
    --  Output file
    File      : Ada.Text_IO.File_Type;
@@ -65,50 +81,57 @@ begin
    Ada.Text_IO.Put_Line ("Bins  (M) = " & M_Bins'Image);
 
    --  Main body : simulate each ball independently
-   declare
-      Current_Batch : Integer := (if Batched then Batch_Size else 1);
-      Bin_Allocation : Unbounded_Integer_Array (1 .. M_Bins);
-   begin
-      for Ball in 1 .. N_Balls loop
-         declare
-            --  Allocate a bin for the given ball
-            Allocated_Bin : constant Integer :=
-              Allocation_Schemes.Assign_Bin
-               (Strategy => Strategy,
-                M_Bins   => M_Bins,
-                D        => D,
-                β        => β,
-                Status   => Bins);
-         begin
-            --  Update bins
-            if Batched and then Batch_Size > 1 then
-               Current_Batch := @ - 1;
-               Bin_Allocation (Allocated_Bin) := @ + 1;
-               if Current_Batch = 0 then
-                  Bins           := @ + Bin_Allocation;
-                  Current_Batch  := (if Batched then Batch_Size else 1);
-                  Bin_Allocation := [others => 0];
+   for I in 1 .. T loop
+      Bins := [others => [others => 0]];
+      declare
+         Current_Batch : Integer := (if Batched then Batch_Size else 1);
+         Bin_Allocation : Unbounded_Integer_Array (1 .. M_Bins);
+      begin
+         for Ball in 1 .. N_Balls loop
+            declare
+               --  Allocate a bin for the given ball
+               Allocated_Bin : constant Integer :=
+                 Allocation_Schemes.Assign_Bin
+                  (Strategy => Strategy,
+                   M_Bins   => M_Bins,
+                   D        => D,
+                   β        => β,
+                   K        => K,
+                   Status   => Bins (I));
+            begin
+               --  Update bins
+               if Batched and then Batch_Size > 1 then
+                  Current_Batch := @ - 1;
+                  Bin_Allocation (Allocated_Bin) := @ + 1;
+                  if Current_Batch = 0 then
+                     Bins (I)       := @ + Bin_Allocation;
+                     Current_Batch  := (if Batched then Batch_Size else 1);
+                     Bin_Allocation := [others => 0];
+                  end if;
+               else
+                  Bins (I) (Allocated_Bin) := @ + 1;
                end if;
-            else
-               Bins (Allocated_Bin) := @ + 1;
-            end if;
-         end;
-      end loop;
-   end;
+            end;
+         end loop;
+      end;
+      Total := @ + Bins (I);
+   end loop;
+
+   Total := @ / T;
 
    --  Write to a CSV file the results
-   --  Ada.Text_IO.Create (File, Ada.Text_IO.Out_File, File_Name);
-   --  Ada.Text_IO.Put_Line (File, "i,balls");
-   --  for I in Cell_Index loop
-   --   Ada.Text_IO.Put_Line (
-   --     File, I'Image (2 .. I'Image'Last) &
-   --     ',' & Cells (I)'Image (2 .. Cells (I)'Image'Last));
-   --  end loop;
-   --  Ada.Text_IO.Close (File);
+   Ada.Text_IO.Create (File, Ada.Text_IO.Out_File, File_Name);
+   Ada.Text_IO.Put_Line (File, "bins,balls");
+   for I in Total'Range loop
+      Ada.Text_IO.Put_Line (
+        File, I'Image (2 .. I'Image'Last) &
+        ',' & Total (I)'Image (2 .. Total (I)'Image'Last));
+   end loop;
+   Ada.Text_IO.Close (File);
 
    --  Print dummy plot
    if Print_Graph then
-      for B of Bins loop
+      for B of Total loop
          for R in 1 .. B loop
             Ada.Text_IO.Put ("X");
          end loop;
