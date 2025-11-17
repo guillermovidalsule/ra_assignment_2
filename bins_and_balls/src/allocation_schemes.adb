@@ -1,3 +1,28 @@
+--------------------------------------------------------------------------
+--                                                                      --
+--                R A N D O M I Z E D  A L G O R I T H M S              --
+--                                                                      --
+--                        Programming Assignment 2                      --
+--                                                                      --
+--               A L L O C A T I O N _ S C H E M E S . A D B            --
+--                                  Body                                --
+--                                                                      --
+--                         Guillermo Vidal Sulé                         --
+--                                                                      --
+--             Master in Innovation & Research in Informatics           --
+--                  Universitat Politècnica de Catalunya                --
+--                   Facultat d'Informàtica de Barcelona                --
+--                                                                      --
+--                             2025-2026 Q1                             --
+--                                                                      --
+-- Body of the allocation schemes described in the assignment statement.--
+-- Some of the functions are  hidden inside the  body as they  are only --
+-- called  here. These include  a version of the Quickselect algorithm, --
+-- the logic of the partial visualization, and some other minor utili-  --
+-- ties.                                                                --
+--                                                                      --
+--------------------------------------------------------------------------
+
 with Ada.Numerics.Discrete_Random;
 with Ada.Numerics.Float_Random;
 
@@ -10,7 +35,7 @@ package body Allocation_Schemes is
    function Rand_Quickselect (A, Status : Unbounded_Integer_Array;
                               Ith, Left, Right : Integer)
      return Integer
-     with Pre => Ith in 0 .. (A'Last - A'First);
+     with Pre => Ith in 1 .. (A'Last - A'First + 1);
 
    function Partial_Info_Assignment (Bins   : Unbounded_Integer_Array;
                                      Status : Unbounded_Integer_Array;
@@ -23,6 +48,9 @@ package body Allocation_Schemes is
                          β        : Float)
      return Integer
      with Post => Calculate_D'Result > 0;
+
+   function Get_Median (Set : Unbounded_Integer_Array)
+     return Float;
 
    ------------------------
    --  Rand_Quickselect  --
@@ -94,7 +122,7 @@ package body Allocation_Schemes is
                G : Generator;
             begin
                Reset (G);
-               if Random (G) <= β then
+               if Random (G) < β then
                   return 2;
                else
                   return 1;
@@ -102,6 +130,33 @@ package body Allocation_Schemes is
             end;
       end case;
    end Calculate_D;
+
+   ------------------
+   --  Get_Median  --
+   ------------------
+
+   function Get_Median (Set : Unbounded_Integer_Array)
+     return Float
+   is
+      Median : Float := Float (
+        Rand_Quickselect
+         (A      => [for I in Set'Range => I], --  All valid indices
+          Status => Set,
+          Ith    => (Set'First + Set'Last) / 2, --  Median
+          Left   => Set'First,
+          Right  => Set'Last));
+   begin
+      if Set'Length rem 2 = 0 then
+         Median := @ + Float (Rand_Quickselect
+           (A      => [for I in Set'Range => I],
+            Status => Set,
+            Ith    => (Set'First + Set'Last) / 2 + 1,
+            Left   => Set'First,
+            Right  => Set'Last));
+         Median := @ / 2.0;
+      end if;
+      return Median;
+   end Get_Median;
 
    -------------------------------
    --  Partial_Info_Assignment  --
@@ -114,13 +169,7 @@ package body Allocation_Schemes is
    is
 
       --  Select the median using random quickselect
-      Median : constant Integer := Status (
-        Rand_Quickselect
-         (A      => [for I in Status'Range => I], --  All valid indices
-          Status => Status,
-          Ith    => (Status'First + Status'Last) / 2, --  Median
-          Left   => Status'First,
-          Right  => Status'Last));
+      Median : constant Float := Get_Median (Status);
       B_1 : constant Integer := Bins (Bins'First);
       B_2 : constant Integer := Bins (Bins'Last);
       subtype Bin_Range is Integer range Bins'Range;
@@ -130,8 +179,8 @@ package body Allocation_Schemes is
    begin
 
       Rand.Reset (G);
-      if Status (B_1) < Median xor Status (B_2) < Median then
-         return (if Status (B_1) < Median then B_1 else B_2);
+      if Float (Status (B_1)) < Median xor Float (Status (B_2)) < Median then
+         return (if Float (Status (B_1)) < Median then B_1 else B_2);
       end if;
 
       if K = 1 then
@@ -140,7 +189,7 @@ package body Allocation_Schemes is
 
       declare
          Limit : constant Float :=
-           (if B_1 < Median then 0.75 else 0.25);
+           (if Float (B_1) < Median then 0.75 else 0.25);
          Load : constant Integer := Status (
            Rand_Quickselect
             (A      => [for I in Status'Range => I],
@@ -178,46 +227,41 @@ package body Allocation_Schemes is
       subtype D_Range is Integer range 1 .. New_D;
 
       package Rand is new Ada.Numerics.Discrete_Random (M_Range);
-      use Rand;
+      package Rand_Bin is new Ada.Numerics.Discrete_Random (D_Range);
 
-      Drawn_Bins : array (M_Range) of Boolean := [others => False];
       Bins : Unbounded_Integer_Array (D_Range);
-      Rand_Bin : Integer := 0;
-      G : Generator;
+      G   : Rand.Generator;
+      G_2 : Rand_Bin.Generator;
+      F : constant Integer := Bins'First;
+      L : constant Integer := Bins'Last;
 
    begin
-
-      Reset (G);
-
       --  We randomly select a set of bins
-      for I in D_Range loop
-         Rand_Bin := Random (G);
-         while Drawn_Bins (Rand_Bin) loop
-            Rand_Bin := Random (G);
-         end loop;
-         Drawn_Bins (Rand_Bin) := True;
-         Bins (I) := Rand_Bin;
-      end loop;
+      Rand.Reset (G); Rand_Bin.Reset (G_2);
+      Bins := [for B of Bins => Rand.Random (G)];
 
       --  Ball is allocated according to the selected strategy
       case New_D is
-         when 1  => return Bins (Bins'First);
+         when 1  => return Bins (F);
          when 2  =>
-            if not Partial then
-               return (if Status (Bins (Bins'First)) <=
-                       Status (Bins (Bins'Last))
-                       then Bins (Bins'First) else Bins (Bins'Last));
+            if K = 0 then
+               if Status (Bins (F)) < Status (Bins (L)) then
+                  return Bins (F);
+               elsif Status (Bins (F)) > Status (Bins (L)) then
+                  return Bins (L);
+               else
+                  return Bins (Rand_Bin.Random (G_2));
+               end if;
             else
                return Partial_Info_Assignment (Bins, Status, K);
             end if;
          when 3 .. Integer'Last  =>
-            return Rand_Quickselect
-                    (A      => Bins,
-                     Status => Status,
-                     Ith    => 1,
-                     Left   => Bins'First,
-                     Right  => Bins'Last);
-         when others => return -1; --  Should never run
+            return Min : Integer := Bins (F) do
+               for B of Bins loop
+                  if Status (B) < Status (Min) then Min := B; end if;
+               end loop;
+            end return;
+         when others => raise Constraint_Error;
       end case;
 
    end Assign_Bin;

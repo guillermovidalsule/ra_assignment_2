@@ -14,10 +14,9 @@ project Bins_And_Balls is
         & ("-gnateDD=1")
         & ("-gnateDSTRAT=One_Choice")
         & ("-gnateDB=0.0")
-        & ("-gnateDBATCH=True")
+        & ("-gnateDBATCH=False")
         & ("-gnateDBATCH_SIZE=1")
-        & ("-gnateDK=1")
-        & ("-gnateDPARTIAL=False")
+        & ("-gnateDK=0")
         & ("-gnateDT=1");
    end Compiler;
 

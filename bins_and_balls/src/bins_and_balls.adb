@@ -38,6 +38,7 @@
 --------------------------------------------------------------------------
 
 with Ada.Characters.Latin_1;
+with Ada.Numerics.Elementary_Functions;
 with Ada.Text_IO;
 
 with Allocation_Schemes;
@@ -61,16 +62,18 @@ procedure Bins_And_Balls is
    Batched    : constant Boolean := $BATCH;
    Batch_Size : constant         := $BATCH_SIZE;
 
-   --  Rustic visualization
-   Print_Graph : constant Boolean := False;
+   --  Dummy visualization
+   Print_Graph : constant Boolean := True;
 
    --  Array holding ball x bins
-   Bins  : array (1 .. T) of Unbounded_Integer_Array (1 .. M_Bins);
-   Total : Unbounded_Integer_Array (1 .. M_Bins);
+   Bins  : Unbounded_Integer_Array (1 .. M_Bins);
+   Gaps  : array (1 .. T) of Float;
 
    --  Output file
    File      : Ada.Text_IO.File_Type;
    File_Name : constant String := "results.csv";
+
+   Allocated_Bin : Integer := 0;
 
 begin
 
@@ -82,56 +85,76 @@ begin
 
    --  Main body : simulate each ball independently
    for I in 1 .. T loop
-      Bins := [others => [others => 0]];
+      Bins := [others => 0];
       declare
          Current_Batch : Integer := (if Batched then Batch_Size else 1);
          Bin_Allocation : Unbounded_Integer_Array (1 .. M_Bins);
       begin
          for Ball in 1 .. N_Balls loop
-            declare
-               --  Allocate a bin for the given ball
-               Allocated_Bin : constant Integer :=
-                 Allocation_Schemes.Assign_Bin
-                  (Strategy => Strategy,
-                   M_Bins   => M_Bins,
-                   D        => D,
-                   β        => β,
-                   K        => K,
-                   Status   => Bins (I));
-            begin
-               --  Update bins
-               if Batched and then Batch_Size > 1 then
-                  Current_Batch := @ - 1;
-                  Bin_Allocation (Allocated_Bin) := @ + 1;
-                  if Current_Batch = 0 then
-                     Bins (I)       := @ + Bin_Allocation;
-                     Current_Batch  := (if Batched then Batch_Size else 1);
-                     Bin_Allocation := [others => 0];
-                  end if;
-               else
-                  Bins (I) (Allocated_Bin) := @ + 1;
+            --  Allocate a bin for the given ball
+            Allocated_Bin :=
+              Allocation_Schemes.Assign_Bin
+               (Strategy => Strategy,
+                M_Bins   => M_Bins,
+                D        => D,
+                β        => β,
+                K        => K,
+                Status   => Bins);
+
+            --  Update bins
+            if Batched and then Batch_Size > 1 then
+               Current_Batch := @ - 1;
+               Bin_Allocation (Allocated_Bin) := @ + 1;
+               if Current_Batch = 0 or Ball = N_Balls then
+                  Bins           := @ + Bin_Allocation;
+                  Current_Batch  := (if Batched then Batch_Size else 1);
+                  Bin_Allocation := [others => 0];
                end if;
-            end;
+            else
+               Bins (Allocated_Bin) := @ + 1;
+            end if;
          end loop;
       end;
-      Total := @ + Bins (I);
+      declare --  Float'Max Reductions are broken in the FSF compiler
+         Avg : constant Float := Float (N_Balls) / Float (M_Bins);
+         Gap : Float;
+      begin
+         Gaps (I) := 0.0;
+         for E of Bins loop
+            Gap := Float (E) - Avg;
+            if Gap > Gaps (I) then
+               Gaps (I) := Gap;
+            end if;
+         end loop;
+      end;
    end loop;
-
-   Total := @ / T;
 
    --  Write to a CSV file the results
-   Ada.Text_IO.Create (File, Ada.Text_IO.Out_File, File_Name);
-   Ada.Text_IO.Put_Line (File, "bins,balls");
-   for I in Total'Range loop
+   declare
+      use Ada.Numerics.Elementary_Functions;
+      Avg_Gap  : constant Float :=
+        [for E of Gaps => E]'Reduce ("+", 0.0) / Float (T);
+      Variance : constant Float :=
+        [for E of Gaps => (E - Avg_Gap) ** 2]'Reduce ("+", 0.0)
+         / Float (T);
+      Std_Dev  : constant Float := Sqrt (Variance);
+   begin
+      Ada.Text_IO.Create (File, Ada.Text_IO.Out_File, File_Name);
+      Ada.Text_IO.Put_Line (File, "C,N,M,B,G,V,D");
       Ada.Text_IO.Put_Line (
-        File, I'Image (2 .. I'Image'Last) &
-        ',' & Total (I)'Image (2 .. Total (I)'Image'Last));
-   end loop;
-   Ada.Text_IO.Close (File);
+        File, D'Image (2 .. D'Image'Last)
+        & ',' & N_Balls'Image (2 .. N_Balls'Image'Last)
+        & ',' & M_Bins'Image (2 .. M_Bins'Image'Last)
+        & ',' & Batch_Size'Image (2 .. Batch_Size'Image'Last)
+        & ',' & Avg_Gap'Image (2 .. Avg_Gap'Image'Last)
+        & ',' & Variance'Image (2 .. Variance'Image'Last)
+        & ',' & Std_Dev'Image (2 .. Std_Dev'Image'Last));
+      Ada.Text_IO.Close (File);
+   end;
 
    --  Print dummy plot
    if Print_Graph then
-      for B of Total loop
+      for B of Bins loop
          for R in 1 .. B loop
             Ada.Text_IO.Put ("X");
          end loop;
